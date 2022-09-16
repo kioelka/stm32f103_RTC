@@ -1,0 +1,147 @@
+#include "stm32f103x6.h"
+#include "color.h"
+
+#define WS_A3
+#define LED_COUNT 13
+
+#define BIN_0   0
+#define BIN_1   1
+#define BIN_10  2
+#define BIN_11  3
+
+#define DELAY_LEN       48
+
+#define ARRAY_LEN       DELAY_LEN + LED_COUNT*24
+#define BitIsSet(reg, bit) ((reg & (1<<bit)) != 0)
+
+void ws2812_pixel_rgb_to_buf_dma(GRB_u8_Color_TypeDef*, uint16_t);
+void set_all_led(float,float,float);
+void ws2812_update();
+void ws2812_init();
+
+#define WS2812_INIT_TIM_CC4     WS2812_TIM->CCER |= TIM_CCER_CC4E | TIM_CCER_CC4P;\
+WS2812_TIM->CCMR2 |= TIM_CCMR2_OC4M_2 | TIM_CCMR2_OC4M_1 | TIM_CCMR2_OC4M_0 | TIM_CCMR2_OC4PE;\
+    WS2812_TIM->DIER |= TIM_DIER_CC4DE\
+        
+#define WS2812_INIT_TIM_CC3     WS2812_TIM->CCER |= TIM_CCER_CC3E | TIM_CCER_CC3P;\
+        WS2812_TIM->CCMR2 |= TIM_CCMR2_OC3M_2 | TIM_CCMR2_OC3M_1 | TIM_CCMR2_OC3M_0 | TIM_CCMR2_OC3PE;\
+            WS2812_TIM->DIER |= TIM_DIER_CC3DE\
+                
+#define WS2812_INIT_TIM_CC2	WS2812_TIM->CCER |= TIM_CCER_CC2E | TIM_CCER_CC2P;\
+                WS2812_TIM->CCMR1 |= TIM_CCMR1_OC2M_2 | TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_0 | TIM_CCMR1_OC2PE;\
+                    WS2812_TIM->DIER |= TIM_DIER_CC2DE\
+                        
+#define WS2812_INIT_TIM_CC1	WS2812_TIM->CCER |= TIM_CCER_CC1E | TIM_CCER_CC1P;\
+                        WS2812_TIM->CCMR1 |= TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_0 | TIM_CCMR1_OC1PE;\
+                            WS2812_TIM->DIER |= TIM_DIER_CC1DE\
+                                
+
+                                
+#ifdef WS_A3
+#define WS2812_TIM              TIM2
+#define WS2812_TIM_CCR          WS2812_TIM->CCR4
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM2EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel7
+#define WS2812_DMA_Channel_IQRn DMA1_Channel7_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channel7_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF7
+#define WS2812_PORT             GPIOA
+#define WS2812_PIN              1<<3
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE3 | GPIO_CRL_CNF3); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF3_Pos) | (BIN_11 << GPIO_CRL_MODE3_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC4
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC4DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC4DE
+#endif
+#ifdef WS_B0
+#define WS2812_TIM              TIM3
+#define WS2812_TIM_CCR          WS2812_TIM->CCR3
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM3EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel2
+#define WS2812_DMA_Channel_IQRn DMA1_Channel2_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channel2_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF2
+#define WS2812_PORT             GPIOB
+#define WS2812_PIN              1<<0
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE0 | GPIO_CRL_CNF0); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF0_Pos) | (BIN_11 << GPIO_CRL_MODE0_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC3
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC3DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC3DE
+#endif
+#ifdef WS_B1
+#define WS2812_TIM              TIM3
+#define WS2812_TIM_CCR          WS2812_TIM->CCR4
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM3EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel3
+#define WS2812_DMA_Channel_IQRn DMA1_Channel3_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channel3_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF3
+#define WS2812_PORT             GPIOB
+#define WS2812_PIN              1<<1
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE1 | GPIO_CRL_CNF1); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF1_Pos) | (BIN_11 << GPIO_CRL_MODE1_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC4
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC4DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC4DE
+#endif
+#ifdef WS_A2
+#define WS2812_TIM              TIM2
+#define WS2812_TIM_CCR          WS2812_TIM->CCR3
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM2EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel1
+#define WS2812_DMA_Channel_IQRn DMA1_Channel1_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channel1_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF1
+#define WS2812_PORT             GPIOA
+#define WS2812_PIN              1<<2
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE2 | GPIO_CRL_CNF2); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF2_Pos) | (BIN_11 << GPIO_CRL_MODE2_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC3
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC3DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC3DE
+#endif
+#ifdef WS_A1
+#define WS2812_TIM              TIM2
+#define WS2812_TIM_CCR          WS2812_TIM->CCR2
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM2EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel7
+#define WS2812_DMA_Channel_IQRn DMA1_Channel7_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channel7_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF7
+#define WS2812_PORT             GPIOA
+#define WS2812_PIN              1<<1
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE1 | GPIO_CRL_CNF1); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF1_Pos) | (BIN_11 << GPIO_CRL_MODE1_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC2
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC2DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC2DE
+#endif
+#ifdef WS_A0
+#define WS2812_TIM              TIM2
+#define WS2812_TIM_CCR          WS2812_TIM->CCR1
+#define WS2812_TIM_CLK_EN       RCC->APB1ENR |= RCC_APB1ENR_TIM2EN
+#define WS2812_DMA              DMA1
+#define WS2812_DMA_Channel      DMA1_Channel5
+#define WS2812_DMA_Channel_IQRn DMA1_Channel5_IRQn
+#define WS2812_DMA_CLK_EN       RCC_AHBENR_DMA1EN
+#define WS2812_DMA_IRQHandler   DMA1_Channe5_IRQHandler
+#define WS2812_DMA_IFCR_CTCIF   DMA_IFCR_CTCIF5
+#define WS2812_PORT             GPIOA
+#define WS2812_PIN              1<<0
+#define WS2812_INIT_PIN         WS2812_PORT->CRL &= ~(GPIO_CRL_MODE0 | GPIO_CRL_CNF0); WS2812_PORT->CRL |=  (BIN_10 << GPIO_CRL_CNF0_Pos) | (BIN_11 << GPIO_CRL_MODE0_Pos)
+#define WS2812_INIT_TIM_CC      WS2812_INIT_TIM_CC1
+#define WS2812_GPIO_CLK_EN      RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_AFIOEN;
+#define WS2812_TIM_SET_CCxDE    WS2812_TIM->DIER |= TIM_DIER_CC1DE
+#define WS2812_TIM_RESET_CCxDE  WS2812_TIM->DIER &= ~TIM_DIER_CC1DE
+#endif
